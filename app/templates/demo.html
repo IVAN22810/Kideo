@@ -22,6 +22,35 @@
     </div>
   </nav>
 
+  {# ─── Demo API-key banner (sandbox bootstrap; rotates on every restart) #}
+  {% if demo_api_key %}
+  <div class="max-w-7xl mx-auto w-full px-6 pt-6">
+    <div class="glass rounded-2xl px-5 py-4 border-l-4 border-amber-400/70 flex flex-wrap items-center gap-3">
+      <i class="fa-solid fa-key text-amber-400"></i>
+      <div class="flex-1 min-w-0">
+        <div class="text-xs uppercase tracking-wider text-amber-400/90 mb-0.5">Sandbox API key</div>
+        <code id="apiKeyValue"
+              class="font-mono text-sm text-slate-200 break-all select-all">{{ demo_api_key }}</code>
+        <div class="text-xs text-slate-500 mt-1">
+          Send as <code class="font-mono text-amber-300">X-API-Key</code> on every <code class="font-mono text-amber-300">/v1/*</code> call.
+          Rotates on every server restart. Real customer keys come from <code class="font-mono text-amber-300">POST /v1/accounts</code> and are shown exactly once.
+        </div>
+      </div>
+      <button id="copyKeyBtn"
+              class="bg-amber-500/90 hover:bg-amber-400 text-slate-950 font-semibold rounded-xl px-4 py-2 text-sm transition-all whitespace-nowrap">
+        <i class="fa-solid fa-copy mr-1.5"></i><span id="copyKeyLabel">Copy</span>
+      </button>
+    </div>
+  </div>
+  {% else %}
+  <div class="max-w-7xl mx-auto w-full px-6 pt-6">
+    <div class="glass rounded-2xl px-5 py-4 border-l-4 border-rose-400/70 text-sm text-rose-200">
+      <i class="fa-solid fa-triangle-exclamation mr-2"></i>
+      No demo API key is set on this process. Restart the server so the seed mints one, or set <code class="font-mono">app.seed.DEMO_API_KEY</code> manually.
+    </div>
+  </div>
+  {% endif %}
+
   {# ─── Top banner: account + balance (the number that animates) ──────── #}
   <header class="max-w-7xl mx-auto w-full px-6 pt-10 pb-6 fade-in">
     <div class="text-center">
@@ -123,8 +152,36 @@
 
 <script>
   const ACCOUNT_ID = {{ account.id | tojson }};
+  const API_KEY    = {{ demo_api_key | tojson }};  // null if no seed key is available
   const POLL_MS = 1500;
   const REQUEST_AMOUNT_CENTS = 1000;  // $10.00 — keep under the seeded $30 ceiling
+
+  // Centralized auth header for every /v1/* fetch. Defined once, used everywhere.
+  function authHeaders(extra = {}) {
+    return API_KEY ? { "X-API-Key": API_KEY, ...extra } : { ...extra };
+  }
+
+  // Copy-to-clipboard for the sandbox-key banner.
+  const copyKeyBtn = document.getElementById("copyKeyBtn");
+  const copyKeyLabel = document.getElementById("copyKeyLabel");
+  if (copyKeyBtn && API_KEY) {
+    copyKeyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(API_KEY);
+        copyKeyLabel.textContent = "Copied!";
+        setTimeout(() => { copyKeyLabel.textContent = "Copy"; }, 1500);
+      } catch (_) {
+        // Clipboard API unavailable (insecure context, etc.) — fall back to select.
+        const v = document.getElementById("apiKeyValue");
+        if (v) {
+          const r = document.createRange();
+          r.selectNode(v);
+          getSelection().removeAllRanges();
+          getSelection().addRange(r);
+        }
+      }
+    });
+  }
 
   // Citations mirror app/routers/transactions.py — kept in JS so the demo
   // works without an extra compliance-events GET endpoint.
@@ -247,7 +304,7 @@
     try {
       const res = await fetch(`/v1/accounts/${ACCOUNT_ID}/withdrawals`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           amount_minor_units: REQUEST_AMOUNT_CENTS,
           description: "Demo: request $10",
@@ -277,7 +334,7 @@
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -304,8 +361,8 @@
   async function poll() {
     try {
       const [accRes, pendRes] = await Promise.all([
-        fetch(`/v1/accounts/${ACCOUNT_ID}`),
-        fetch(`/v1/accounts/${ACCOUNT_ID}/transactions?status=pending&type=withdrawal`),
+        fetch(`/v1/accounts/${ACCOUNT_ID}`, { headers: authHeaders() }),
+        fetch(`/v1/accounts/${ACCOUNT_ID}/transactions?status=pending&type=withdrawal`, { headers: authHeaders() }),
       ]);
       if (accRes.ok) {
         const acc = await accRes.json();

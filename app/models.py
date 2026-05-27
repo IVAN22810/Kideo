@@ -61,6 +61,10 @@ def transaction_id() -> str:
     return generate_id("tx")
 
 
+def api_key_id() -> str:
+    return generate_id("ak")
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -136,6 +140,8 @@ class ComplianceEventType(str, Enum):
     withdrawal_requested = "withdrawal.requested"  # child-initiated; pending parent approval; NO balance change yet
     withdrawal_approved = "withdrawal.approved"  # parent approved; balance decremented atomically
     withdrawal_rejected = "withdrawal.rejected"  # parent rejected; NO balance change
+    api_key_created = "api_key.created"  # API key issued for an account; plaintext returned to customer exactly once
+    api_key_revoked = "api_key.revoked"  # reserved for future POST /v1/api-keys/{id}/revoke (not yet implemented)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -222,6 +228,7 @@ class Account(SQLModel, table=True):
     child: Optional[Child] = Relationship(back_populates="accounts")
     consents: list["Consent"] = Relationship(back_populates="account")
     transactions: list["Transaction"] = Relationship(back_populates="account")
+    api_keys: list["ApiKey"] = Relationship(back_populates="account")
 
 
 class Consent(SQLModel, table=True):
@@ -312,3 +319,29 @@ class Transaction(SQLModel, table=True):
 
     account: Optional[Account] = Relationship(back_populates="transactions")
     funding_source: Optional[FundingSource] = Relationship(back_populates="transactions")
+
+
+class ApiKey(SQLModel, table=True):
+    """Customer API key for authenticating against /v1/* endpoints.
+
+    Plaintext is shown to the customer EXACTLY ONCE in the response of
+    POST /v1/accounts and is never recoverable after that — we store only
+    the SHA-256 hash. Auth at request time hashes the incoming X-API-Key
+    header and looks it up against the indexed `key_hash` column.
+
+    `prefix` is the first 15 chars of the plaintext (`kideo_live_AbCd`) and
+    is safe to display — it lets us show "your key starts with kideo_live_AbCd"
+    in dashboards without ever holding the full secret server-side.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: str = Field(default_factory=api_key_id, primary_key=True)
+    account_id: str = Field(foreign_key="accounts.id", index=True)
+    prefix: str = Field(max_length=32)  # safe-to-display first 15 chars of the plaintext
+    key_hash: str = Field(index=True, unique=True, max_length=128)  # SHA-256 hex of the full plaintext
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    last_used_at: Optional[datetime] = Field(default=None)
+    revoked_at: Optional[datetime] = Field(default=None, index=True)
+
+    account: Optional[Account] = Relationship(back_populates="api_keys")

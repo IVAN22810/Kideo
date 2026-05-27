@@ -17,8 +17,13 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.errors import MinorAPIError
-from app.models import Account, Child, ComplianceEventType, Parent
-from app.schemas import AccountCreate, AccountRead
+from app.models import Account, ApiKey, Child, ComplianceEventType, Parent
+from app.schemas import AccountCreate, AccountCreatedResponse, AccountRead
+from app.services.api_keys import (
+    extract_prefix,
+    generate_plaintext_key,
+    hash_key,
+)
 from app.services.compliance import log_event
 from app.services.state_rules import (
     get_state_rules,
@@ -36,15 +41,18 @@ parent_accounts_router = APIRouter(prefix="/v1/parents", tags=["accounts"])
 
 @router.post(
     "",
-    response_model=AccountRead,
+    response_model=AccountCreatedResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Open a UTMA/UGMA custodial account",
+    summary=(
+        "Open a UTMA/UGMA custodial account and issue its API key. "
+        "The plaintext key is returned exactly once — capture it on creation."
+    ),
 )
 def create_account(
     payload: AccountCreate,
     request: Request,
     session: Session = Depends(get_session),
-) -> Account:
+) -> AccountCreatedResponse:
     # 1. Parent must exist
     parent = session.get(Parent, payload.parent_id)
     if parent is None:
@@ -133,9 +141,47 @@ def create_account(
         ip_address=request.client.host if request.client else None,
     )
 
+    # 6. Issue the customer's API key atomically alongside the account.
+    # Plaintext is returned in this response and NEVER stored — we persist only
+    # the SHA-256 hash + the first 15-char prefix (for safe display).
+    plaintext_key = generate_plaintext_key()
+    api_key_row = ApiKey(
+        account_id=account.id,
+        prefix=extract_prefix(plaintext_key),
+        key_hash=hash_key(plaintext_key),
+    )
+    session.add(api_key_row)
+    session.flush()  # populate api_key_row.id before the audit event references it
+
+    log_event(
+        session=session,
+        event_type=ComplianceEventType.api_key_created,
+        entity_type="api_key",
+        entity_id=api_key_row.id,
+        actor_id=parent.id,
+        payload={
+            "account_id": account.id,
+            "prefix": api_key_row.prefix,
+            # Intentionally omit the plaintext or the hash from the audit payload —
+            # audit rows are queryable by ops; the secret stays scoped to this response.
+        },
+        regulatory_reference=(
+            "Customer API credential issued for custodial account. Plaintext "
+            "returned to integrator exactly once; only SHA-256 hash retained."
+        ),
+        ip_address=request.client.host if request.client else None,
+    )
+
     session.commit()
     session.refresh(account)
-    return account
+    session.refresh(api_key_row)
+
+    return AccountCreatedResponse(
+        account=AccountRead.model_validate(account),
+        api_key=plaintext_key,
+        api_key_prefix=api_key_row.prefix,
+        api_key_id=api_key_row.id,
+    )
 
 
 @router.get(

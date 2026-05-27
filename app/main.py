@@ -24,7 +24,9 @@ from app.errors import MinorAPIError, minor_api_error_handler
 from app.models import Account, AccountStatus, Child, FundingSource, Parent, Transaction
 from app.routers import accounts, children, consents, funding, parents, transactions
 from app.schemas import ChatRequest, ChatResponse
+from app import seed as _seed
 from app.seed import seed_demo_data_if_empty
+from app.services.auth import require_api_key
 
 
 @asynccontextmanager
@@ -56,15 +58,20 @@ app.mount("/static", StaticFiles(directory=_APP_DIR / "static"), name="static")
 app.add_exception_handler(MinorAPIError, minor_api_error_handler)
 
 # ── Versioned API routers ───────────────────────────────────────────────────
+# Every /v1/* router is gated behind X-API-Key via the router-level dependency
+# below. ONE change point — adding a new router automatically inherits auth.
+# Exceptions (/health, /demo, /docs, HTML pages) live OUTSIDE /v1/* by design.
 
-app.include_router(parents.router)
-app.include_router(children.router)
-app.include_router(accounts.router)
-app.include_router(accounts.parent_accounts_router)  # GET /v1/parents/{id}/accounts
-app.include_router(consents.router)
-app.include_router(funding.router)
-app.include_router(transactions.router)
-app.include_router(transactions.actions_router)  # POST /v1/transactions/{id}/{approve|reject}
+_v1_auth = [Depends(require_api_key)]
+
+app.include_router(parents.router, dependencies=_v1_auth)
+app.include_router(children.router, dependencies=_v1_auth)
+app.include_router(accounts.router, dependencies=_v1_auth)
+app.include_router(accounts.parent_accounts_router, dependencies=_v1_auth)  # GET /v1/parents/{id}/accounts
+app.include_router(consents.router, dependencies=_v1_auth)
+app.include_router(funding.router, dependencies=_v1_auth)
+app.include_router(transactions.router, dependencies=_v1_auth)
+app.include_router(transactions.actions_router, dependencies=_v1_auth)  # POST /v1/transactions/{id}/{approve|reject}
 
 
 # ── Health / API root ───────────────────────────────────────────────────────
@@ -128,6 +135,10 @@ def parent_dashboard(
             "children": children_by_id,
             "funding_sources": funding_sources_list,
             "total_balance": total_balance,
+            # Sandbox key used by in-page JS for /v1/* fetches (deposit modal etc.).
+            # In a real customer dashboard this would be the customer's own key,
+            # scoped per-account; here every page borrows the universal seed key.
+            "demo_api_key": _seed.DEMO_API_KEY,
         },
     )
 
@@ -177,6 +188,10 @@ def demo(
             "account": account,
             "child": child,
             "parent": parent,
+            # Plaintext lives in process memory only; refreshes on every restart.
+            # /demo is OUTSIDE the /v1/* auth gate per the spec, so this is safe
+            # to render — the in-page JS uses it to authenticate its fetch calls.
+            "demo_api_key": _seed.DEMO_API_KEY,
         },
     )
 
@@ -209,6 +224,8 @@ def child_dashboard(
             "account": account,
             "child": child,
             "transactions": transactions_list,
+            # Sandbox key for in-page JS (chat POST and any future fetches).
+            "demo_api_key": _seed.DEMO_API_KEY,
         },
     )
 
@@ -221,7 +238,11 @@ def child_dashboard(
 _chat_lock = threading.Lock()
 
 
-@app.post("/v1/chat", response_model=ChatResponse)
+@app.post(
+    "/v1/chat",
+    response_model=ChatResponse,
+    dependencies=[Depends(require_api_key)],
+)
 def chat(
     payload: ChatRequest,
     request: Request,
@@ -267,9 +288,16 @@ def chat(
         ),
     }
 
-    # 3. Run the mock agent. It loops back via HTTP to this same server.
+    # 3. Run the mock agent. It loops back via HTTP to this same server, so it
+    # has to send the demo's API key on every call — the /v1/* routers are
+    # gated now. We use the same seed-mint plaintext that the /demo banner shows.
     base_url = str(request.base_url).rstrip("/")
-    agent = MinorAgent(base_url=base_url, context=context, mock_mode=True)
+    agent = MinorAgent(
+        base_url=base_url,
+        context=context,
+        api_key=_seed.DEMO_API_KEY,
+        mock_mode=True,
+    )
     buf = io.StringIO()
     try:
         with _chat_lock, contextlib.redirect_stdout(buf):

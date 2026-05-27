@@ -175,6 +175,7 @@ class MinorAgent:
         *,
         base_url: str,
         context: dict[str, str],
+        api_key: str | None = None,
         client: Any | None = None,
         model: str = "claude-opus-4-7",
         mock_mode: bool = True,
@@ -182,7 +183,12 @@ class MinorAgent:
         self.mock_mode = mock_mode
         self.context = context
         self.model = model
-        self.http = httpx.Client(base_url=base_url, timeout=10.0)
+        # Attach the customer API key as a default header so every outbound
+        # /v1/* call from this agent authenticates automatically. Passing None
+        # is supported for legacy callers / tests but will get 401s from the
+        # gated routes — emit nothing here, let the route reject naturally.
+        default_headers = {"X-API-Key": api_key} if api_key else {}
+        self.http = httpx.Client(base_url=base_url, timeout=10.0, headers=default_headers)
         self.messages: list[dict[str, Any]] = []
 
         if mock_mode:

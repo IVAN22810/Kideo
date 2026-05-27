@@ -1,18 +1,23 @@
 """Idempotent demo-data seed for fresh deployments (e.g. Render).
 
-Runs at app startup via lifespan. If an active account already exists, this is
-a no-op. Otherwise it creates the canonical "Alice -> Carol, NY UTMA, $75
-balance, $30 per-withdrawal ceiling" demo couple end-to-end through the same
-business logic the API uses, so the seed data is always shape-valid.
+Runs at app startup via lifespan. Behavior:
 
-Why through the routers and not raw DB inserts: the seeded chain has to pass
-COPPA consent, KYC, the state-rules ceiling computation, and the funding-source
-validation — duplicating any of that in raw SQL would be a perfect place for
-the seed and the API to drift apart.
+  • Fresh DB (no active account) — creates the canonical "Alice -> Carol, NY
+    UTMA, $75 balance, $30 per-withdrawal ceiling" demo couple AND mints a
+    demo API key for it.
+  • Already-seeded DB (restart, persistent storage) — does NOT re-create the
+    couple, but DOES mint a fresh demo API key for the existing demo account
+    so /demo has a working key to display. Old key hashes stay in the table
+    but become unreachable (we no longer hold the plaintext).
+
+The plaintext key is stashed in the module-level `DEMO_API_KEY` global so the
+/demo route can render it. It is never written to disk in plaintext — only the
+SHA-256 hash hits the DB, same as customer-issued keys.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlmodel import Session, select
 
@@ -20,6 +25,7 @@ from app.models import (
     Account,
     AccountStatus,
     AccountType,
+    ApiKey,
     Child,
     ComplianceEventType,
     Consent,
@@ -30,19 +36,78 @@ from app.models import (
     Parent,
     Transaction,
 )
+from app.services.api_keys import (
+    extract_prefix,
+    generate_plaintext_key,
+    hash_key,
+)
 from app.services.compliance import log_event
 from app.services.state_rules import get_termination_age
 
 
 DEMO_PARENT_EMAIL = "alice.demo@minor.dev"
 
+# Plaintext of the demo's current API key. Populated by seed_demo_data_if_empty
+# at app startup; consumed by the /demo route to render the copy-paste banner
+# and inject the key into the in-page JS so dashboard fetch() calls authenticate.
+# Lives only in memory — never persisted in plaintext.
+DEMO_API_KEY: Optional[str] = None
+
+
+def _issue_api_key_for_account(session: Session, account_id: str) -> str:
+    """Generate, persist (hashed), and audit-log a fresh API key for an account.
+
+    Returns the plaintext exactly once. Used by the seed for the demo account;
+    the same atomic-with-audit pattern lives in app/routers/accounts.py for the
+    customer-issuance path. Caller is responsible for the surrounding commit.
+    """
+    plaintext = generate_plaintext_key()
+    row = ApiKey(
+        account_id=account_id,
+        prefix=extract_prefix(plaintext),
+        key_hash=hash_key(plaintext),
+    )
+    session.add(row)
+    session.flush()  # populate row.id for the audit event
+
+    log_event(
+        session=session,
+        event_type=ComplianceEventType.api_key_created,
+        entity_type="api_key",
+        entity_id=row.id,
+        actor_id="system",
+        payload={
+            "source": "seed",
+            "account_id": account_id,
+            "prefix": row.prefix,
+            # Intentionally never persist plaintext or hash in the audit payload.
+        },
+        regulatory_reference=(
+            "Demo bootstrap API key issued at startup; plaintext held in process "
+            "memory for /demo display only, hash persisted, never logged."
+        ),
+    )
+    return plaintext
+
 
 def seed_demo_data_if_empty(session: Session) -> None:
-    """No-op if any active account exists; otherwise create the demo chain."""
+    """Ensure the demo couple + a fresh demo API key exist.
+
+    On a fresh DB this runs the full seed and mints a key. On a DB that
+    already has an active account, the couple is left alone but a NEW key
+    is issued (the old in-memory plaintext is gone after restart and the
+    /demo banner needs something to display).
+    """
+    global DEMO_API_KEY
+
     existing = session.exec(
         select(Account).where(Account.status == AccountStatus.active).limit(1)
     ).first()
     if existing is not None:
+        # DB is already seeded (local dev, or a restart with persistent disk).
+        # Mint a new demo key so /demo has a working one to render.
+        DEMO_API_KEY = _issue_api_key_for_account(session, existing.id)
+        session.commit()
         return
 
     now = datetime.now(timezone.utc)
@@ -199,5 +264,9 @@ def seed_demo_data_if_empty(session: Session) -> None:
         },
         regulatory_reference="Seed data — opening deposit",
     )
+
+    # Mint the demo's API key in the SAME transaction as the account. Plaintext
+    # is held in the module global below; commit finalizes the hash row + audit.
+    DEMO_API_KEY = _issue_api_key_for_account(session, account.id)
 
     session.commit()

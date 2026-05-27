@@ -166,6 +166,13 @@
 </div>
 
 <script>
+  // Sandbox API key for in-page /v1/* fetches. In a real customer dashboard
+  // this would be the per-customer key; here we borrow the seed demo key.
+  const API_KEY = {{ demo_api_key | tojson }};
+  function authHeaders(extra = {}) {
+    return API_KEY ? { "X-API-Key": API_KEY, ...extra } : { ...extra };
+  }
+
   let currentAccountId = null;
 
   function openDepositModal(accountId, childName) {
@@ -210,7 +217,7 @@
     try {
       const res = await fetch(`/v1/accounts/${currentAccountId}/deposits`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           funding_source_id: fundingSourceId,
           amount_minor_units: Math.round(amount * 100),

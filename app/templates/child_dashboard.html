@@ -110,6 +110,12 @@
 
 <script>
   const ACCOUNT_ID = {{ account.id | tojson }};
+  // Sandbox API key for in-page /v1/chat (and any future fetches).
+  const API_KEY = {{ demo_api_key | tojson }};
+  function authHeaders(extra = {}) {
+    return API_KEY ? { "X-API-Key": API_KEY, ...extra } : { ...extra };
+  }
+
   const chatMessages = document.getElementById('chatMessages');
   const chatForm = document.getElementById('chatForm');
   const chatInput = document.getElementById('chatInput');
@@ -136,7 +142,7 @@
     try {
       const res = await fetch('/v1/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ account_id: ACCOUNT_ID, message })
       });
       const data = await res.json();

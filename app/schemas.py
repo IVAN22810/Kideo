@@ -205,6 +205,23 @@ class AccountRead(BaseModel):
     closed_at: Optional[datetime] = None
 
 
+class AccountCreatedResponse(BaseModel):
+    """One-time response from POST /v1/accounts.
+
+    `api_key` is the plaintext customer API key (`kideo_live_...`). It is
+    visible in this response ONLY — after this point only its SHA-256 hash
+    remains server-side, and there is no endpoint that can recover it. The
+    integrator MUST capture it now (the Stripe pattern). `api_key_prefix` is
+    the first 15 chars of the same key, safe to display in dashboards.
+    """
+
+    object: Literal["account_created"] = "account_created"
+    account: AccountRead
+    api_key: str = Field(description="Plaintext API key, returned exactly once. Store it securely.")
+    api_key_prefix: str = Field(description="First 15 chars of the API key, safe to display.")
+    api_key_id: str = Field(description="Stable identifier for the key row (ak_*).")
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Consent schemas
 # ──────────────────────────────────────────────────────────────────────────
