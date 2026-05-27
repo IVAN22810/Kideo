@@ -31,6 +31,7 @@ from app.errors import MinorAPIError
 from app.models import (
     Account,
     AccountStatus,
+    ApiKey,
     ComplianceEventType,
     FundingSource,
     Transaction,
@@ -41,6 +42,11 @@ from app.schemas import (
     WithdrawalApprovalRequest,
     WithdrawalRejectionRequest,
     WithdrawalRequest,
+)
+from app.services.auth import (
+    assert_account_access,
+    require_account_access,
+    require_api_key,
 )
 from app.services.compliance import log_event
 
@@ -68,6 +74,7 @@ MIN_WITHDRAWAL_MINOR_UNITS = 100  # $1.00; mirrors deposits
     response_model=TransactionRead,
     status_code=status.HTTP_201_CREATED,
     summary="Deposit funds into an active custodial account from a verified bank source (parent action)",
+    dependencies=[Depends(require_account_access)],
 )
 def create_deposit(
     account_id: str,
@@ -186,6 +193,7 @@ def create_deposit(
     "/{account_id}/transactions",
     response_model=list[TransactionRead],
     summary="List transactions on a custodial account, newest first. Optional filters: status, type.",
+    dependencies=[Depends(require_account_access)],
 )
 def list_account_transactions(
     account_id: str,
@@ -231,6 +239,7 @@ def list_account_transactions(
     response_model=TransactionRead,
     status_code=status.HTTP_201_CREATED,
     summary="Child-initiated withdrawal request (creates pending transaction; parent must approve)",
+    dependencies=[Depends(require_account_access)],
 )
 def create_withdrawal_request(
     account_id: str,
@@ -378,6 +387,7 @@ def approve_withdrawal(
     payload: WithdrawalApprovalRequest,
     request: Request,
     session: Session = Depends(get_session),
+    api_key: ApiKey = Depends(require_api_key),
 ) -> Transaction:
     # 1. Transaction must exist
     transaction = session.get(Transaction, transaction_id)
@@ -388,6 +398,11 @@ def approve_withdrawal(
             code="transaction_not_found",
             message=f"No transaction exists with id '{transaction_id}'.",
         )
+
+    # 1b. Per-account authorization — the caller's key must be the key issued
+    # for THIS transaction's account. Path-param dep can't enforce this because
+    # the URL contains transaction_id, not account_id; resolved via the FK above.
+    assert_account_access(api_key, transaction.account_id)
 
     # 2. Must be a pending withdrawal — guards against double-approval, approving
     # deposits, or approving already-rejected/succeeded transactions
@@ -526,6 +541,7 @@ def reject_withdrawal(
     payload: WithdrawalRejectionRequest,
     request: Request,
     session: Session = Depends(get_session),
+    api_key: ApiKey = Depends(require_api_key),
 ) -> Transaction:
     transaction = session.get(Transaction, transaction_id)
     if transaction is None:
@@ -535,6 +551,9 @@ def reject_withdrawal(
             code="transaction_not_found",
             message=f"No transaction exists with id '{transaction_id}'.",
         )
+
+    # Per-account authorization — see approve_withdrawal for the rationale.
+    assert_account_access(api_key, transaction.account_id)
 
     if transaction.type != "withdrawal":
         raise MinorAPIError(

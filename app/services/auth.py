@@ -1,34 +1,61 @@
-"""FastAPI dependency that gates every /v1/* endpoint behind an X-API-Key header.
+"""Authentication + per-account authorization for /v1/* endpoints.
+
+This module exports three things:
+
+  • require_api_key       — FastAPI dep, gates EVERY /v1/* endpoint behind a
+                            valid (un-revoked) X-API-Key. Returns the resolved
+                            ApiKey row.
+  • require_account_access — FastAPI dep for routes whose path contains a
+                            `{account_id}` parameter. Stacks on top of
+                            require_api_key and 403s if the key was not issued
+                            for that account. Use as a route-level dependency.
+  • assert_account_access — Plain callable for routes where the account is in
+                            the request body or has to be resolved via FK
+                            (e.g. /v1/transactions/{id} → tx.account_id).
+                            Call inline after loading the target resource.
 
 Auth flow per request:
-  1. Read X-API-Key header.
-  2. Shape-validate (`kideo_live_` + 32 chars) to short-circuit malformed inputs
-     without hitting the DB.
-  3. SHA-256 the plaintext, look up by `key_hash` (indexed, unique).
-  4. Reject if not found or `revoked_at IS NOT NULL`.
-  5. Best-effort touch `last_used_at` on a SEPARATE session so the timestamp
-     persists regardless of whether the downstream handler commits.
+  1. require_api_key resolves the X-API-Key header to an ApiKey row (401 on miss).
+  2. If the route is account-scoped, require_account_access (or an inline
+     assert_account_access) compares api_key.account_id to the target account_id
+     and 403s on mismatch.
+  3. last_used_at is updated best-effort on a SEPARATE session so it persists
+     regardless of whether the downstream handler commits.
 
-All failures emit the same Stripe-style envelope used everywhere else in the API:
-  {"error": {"type": "authentication_error", "code": "invalid_api_key", "message": "..."}}
+Error envelopes (Stripe-style, same shape as elsewhere in the API):
+  401  authentication_error / invalid_api_key       (no/bad/revoked key)
+  403  permission_error      / account_access_forbidden   (key for wrong account)
 
 # ────────────────────────────────────────────────────────────────────────────
-# KNOWN GAPS — REVISIT BEFORE A REAL CUSTOMER GETS ACCESS
+# STATUS — what's done, what's still missing before real customers ship
 # ────────────────────────────────────────────────────────────────────────────
-# TODO (per-account authorization): Right now ANY valid (un-revoked) key passes
-#   this gate for ANY /v1/* endpoint. There is no check that the key issued for
-#   account A is being used against account A's resources. A customer holding
-#   their own key could read/mutate another customer's account by guessing IDs
-#   (IDs are 24-char base62 = ~143 bits — unguessable in practice, but the
-#   authorization model still doesn't enforce isolation). Add a per-resource
-#   check: for endpoints scoped to /v1/accounts/{id}/... or /v1/transactions/{id},
-#   compare the key's account_id to the target account_id and 403 on mismatch.
+# DONE  per-account authorization. Keys are scoped to api_key.account_id and
+#       cross-account access returns 403. Applied via require_account_access
+#       (route-level dep for Category 1 path-param routes) and inline
+#       assert_account_access (Category 2 transaction-id routes, Category 3
+#       body-has-account-id routes, Category 4 parent-scoped list filter).
+#       Bootstrap endpoints (POST /v1/parents, /children, /accounts,
+#       /funding-sources, GET /v1) accept any valid key — by design, since the
+#       seed key is the universal sandbox bootstrap per the strict-spec model.
 #
-# TODO (revoke endpoint): The ApiKey model carries `revoked_at` and this
-#   dependency already honors it, but there is no POST /v1/api-keys/{id}/revoke
-#   endpoint yet. Customers cannot rotate keys. Add the endpoint + a corresponding
-#   `api_key.revoked` compliance event (the enum value is already reserved in
-#   ComplianceEventType.api_key_revoked).
+# TODO  (revoke endpoint) The ApiKey model carries `revoked_at` and this
+#       module already honors it, but there is no POST /v1/api-keys/{id}/revoke
+#       endpoint yet. Customers cannot rotate keys. Add the endpoint + a
+#       corresponding `api_key.revoked` compliance event (the enum value is
+#       already reserved in ComplianceEventType.api_key_revoked).
+#
+# TODO  (existence-info leak via 403 vs 404 — production hardening) The 403
+#       account_access_forbidden response confirms the target resource EXISTS;
+#       the wrong-account-id case is distinguishable from a never-existed-id
+#       case (which returns 404). An attacker holding a valid key could
+#       enumerate account/transaction IDs by probing — though our 24-char
+#       base62 IDs make this ~143 bits of search space, so practically
+#       infeasible. For prod, consider returning 404 resource_missing for BOTH
+#       "doesn't exist" and "exists but not yours" to make the two cases
+#       observationally identical. Stripe does this. The 403 is kept here
+#       intentionally for now because it gives sandbox integrators a clearer
+#       signal during onboarding ("you have the wrong key" vs "this id is
+#       wrong").
 # ────────────────────────────────────────────────────────────────────────────
 """
 from __future__ import annotations
@@ -110,3 +137,55 @@ def require_api_key(
 
     _touch_last_used(row.id)
     return row
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Per-account authorization
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _account_access_forbidden(message: str) -> MinorAPIError:
+    """All 403s from this module use the same envelope.
+
+    Type 'permission_error' matches the existing convention in app/errors.py
+    and the other 403 used in the codebase (withdrawal_exceeds_ceiling).
+    """
+    return MinorAPIError(
+        status_code=status.HTTP_403_FORBIDDEN,
+        type="permission_error",
+        code="account_access_forbidden",
+        message=message,
+    )
+
+
+def assert_account_access(api_key: ApiKey, account_id: str) -> None:
+    """Raise 403 if the key was not issued for `account_id`.
+
+    Callable form for handlers where the account_id comes from the body
+    (POST /v1/consents, /v1/chat) or has to be resolved from another resource
+    (POST /v1/transactions/{id}/{approve,reject} — the account lives behind
+    the transaction's FK). Use AFTER the existing "resource exists" check so
+    the error sequencing stays consistent with the rest of the API.
+    """
+    if api_key.account_id != account_id:
+        raise _account_access_forbidden(
+            f"API key (prefix {api_key.prefix}) is scoped to account "
+            f"'{api_key.account_id}' and cannot access account '{account_id}'."
+        )
+
+
+def require_account_access(
+    account_id: str,
+    api_key: ApiKey = Depends(require_api_key),
+) -> ApiKey:
+    """FastAPI dep for routes whose path includes `{account_id}`.
+
+    Stack on top of the router-level require_api_key by adding to a route's
+    `dependencies=[Depends(require_account_access)]`. FastAPI resolves the
+    `account_id` arg from the matching path parameter automatically.
+
+    Returns the resolved ApiKey row so handlers that also declare
+    `api_key: ApiKey = Depends(require_api_key)` get the same cached instance.
+    """
+    assert_account_access(api_key, account_id)
+    return api_key

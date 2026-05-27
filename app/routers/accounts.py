@@ -24,6 +24,7 @@ from app.services.api_keys import (
     generate_plaintext_key,
     hash_key,
 )
+from app.services.auth import require_account_access, require_api_key
 from app.services.compliance import log_event
 from app.services.state_rules import (
     get_state_rules,
@@ -188,6 +189,7 @@ def create_account(
     "/{account_id}",
     response_model=AccountRead,
     summary="Retrieve a custodial account by ID (includes live balance + status)",
+    dependencies=[Depends(require_account_access)],
 )
 def get_account(
     account_id: str,
@@ -207,11 +209,15 @@ def get_account(
 @parent_accounts_router.get(
     "/{parent_id}/accounts",
     response_model=list[AccountRead],
-    summary="List all custodial accounts opened by a parent custodian (newest first)",
+    summary=(
+        "List custodial accounts opened by a parent custodian (newest first). "
+        "Filtered to only the accounts the caller's API key is scoped to."
+    ),
 )
 def list_parent_accounts(
     parent_id: str,
     session: Session = Depends(get_session),
+    api_key: ApiKey = Depends(require_api_key),
 ) -> list[Account]:
     # 404 if the parent doesn't exist — different from an existing-but-empty list,
     # which returns 200 with []
@@ -223,8 +229,29 @@ def list_parent_accounts(
             code="parent_not_found",
             message=f"No parent exists with id '{parent_id}'.",
         )
-    return session.exec(
+
+    # Per-account authorization for a parent-scoped listing: the caller's key
+    # is scoped to ONE account. That account belongs to exactly ONE parent. So
+    # the only parent_id a key can legitimately list is its own account's parent.
+    # Any other parent_id → 403, even if the parent exists.
+    key_account = session.get(Account, api_key.account_id)
+    if key_account is None or key_account.parent_id != parent_id:
+        raise MinorAPIError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            type="permission_error",
+            code="account_access_forbidden",
+            message=(
+                f"API key (prefix {api_key.prefix}) is scoped to an account whose "
+                f"parent is not '{parent_id}'; cannot list this parent's accounts."
+            ),
+        )
+
+    # Defense in depth: even within the right parent, return ONLY the key's own
+    # account. A parent with multiple children/accounts could otherwise have one
+    # key inadvertently see siblings' balances.
+    all_for_parent = session.exec(
         select(Account)
         .where(Account.parent_id == parent_id)
         .order_by(Account.created_at.desc())
     ).all()
+    return [a for a in all_for_parent if a.id == api_key.account_id]

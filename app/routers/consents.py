@@ -23,11 +23,13 @@ from app.errors import MinorAPIError
 from app.models import (
     Account,
     AccountStatus,
+    ApiKey,
     ComplianceEventType,
     Consent,
     ConsentStatus,
 )
 from app.schemas import ConsentCreate, ConsentRead
+from app.services.auth import assert_account_access, require_api_key
 from app.services.compliance import log_event
 
 
@@ -44,6 +46,7 @@ def create_consent(
     payload: ConsentCreate,
     request: Request,
     session: Session = Depends(get_session),
+    api_key: ApiKey = Depends(require_api_key),
 ) -> Consent:
     # 1. Account must exist
     account = session.get(Account, payload.account_id)
@@ -54,6 +57,10 @@ def create_consent(
             code="account_not_found",
             message=f"No account exists with id '{payload.account_id}'.",
         )
+
+    # 1b. Per-account authorization — account_id is in the body, not the URL,
+    # so the route-level dep can't see it; check inline after existence is confirmed.
+    assert_account_access(api_key, account.id)
 
     # 2. Affirmative consent required — COPPA does not accept implicit/default consent
     if not payload.agreed_to_terms:

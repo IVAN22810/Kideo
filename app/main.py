@@ -21,12 +21,12 @@ from sqlmodel import Session, select
 
 from app.database import engine, get_session, init_database
 from app.errors import MinorAPIError, minor_api_error_handler
-from app.models import Account, AccountStatus, Child, FundingSource, Parent, Transaction
+from app.models import Account, AccountStatus, ApiKey, Child, FundingSource, Parent, Transaction
 from app.routers import accounts, children, consents, funding, parents, transactions
 from app.schemas import ChatRequest, ChatResponse
 from app import seed as _seed
 from app.seed import seed_demo_data_if_empty
-from app.services.auth import require_api_key
+from app.services.auth import assert_account_access, require_api_key
 
 
 @asynccontextmanager
@@ -247,6 +247,7 @@ def chat(
     payload: ChatRequest,
     request: Request,
     session: Session = Depends(get_session),
+    api_key: ApiKey = Depends(require_api_key),
 ) -> ChatResponse:
     # Lazy import — avoids a circular dependency at module load time
     from demo.agent import MinorAgent
@@ -260,6 +261,10 @@ def chat(
             code="account_not_found",
             message=f"No account exists with id '{payload.account_id}'.",
         )
+
+    # 1b. Per-account authorization — the API key must be scoped to THIS account
+    # (or the agent could be coerced into reading/mutating another customer's data).
+    assert_account_access(api_key, account.id)
 
     # 2. Resolve the rest of the agent's context
     parent = session.get(Parent, account.parent_id)
