@@ -12,7 +12,7 @@
 
 services:
   - type: web
-    name: minor-api
+    name: kideo
     runtime: python
     plan: free
     region: oregon
