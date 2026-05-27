@@ -1,0 +1,29 @@
+# Render Blueprint for the Minor demo.
+# Free tier — SQLite lives on the container's ephemeral disk and is wiped on
+# every cold start, which is fine: app/seed.py re-seeds the Alice -> Carol
+# demo couple idempotently at startup. Each cold-started demo viewer always
+# gets the canonical state ($75 balance, $30 per-withdrawal ceiling, NY UTMA).
+#
+# Cold-start cost on free tier is ~30s after 15min idle. For pitch demos,
+# hit /health once a few minutes before the meeting to warm the dyno.
+#
+# To upgrade later for true state persistence: bump `plan: free` to `plan: starter`
+# and add a `disk:` block (1GB SSD ~ $1/mo) mounted at /opt/render/project/src/data.
+
+services:
+  - type: web
+    name: minor-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_PATH
+        value: ./data/minor.db

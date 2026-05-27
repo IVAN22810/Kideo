@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Minor — Stripe for Under-18 Finance{% endblock %}
+{% block content %}
+<div class="min-h-screen flex flex-col items-center justify-center px-4 py-12">
+  <div class="max-w-5xl w-full">
+
+    <div class="text-center mb-14 fade-in">
+      <div class="inline-flex items-center gap-3 mb-8">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i class="fa-solid fa-piggy-bank text-white text-xl"></i>
+        </div>
+        <span class="text-3xl font-extrabold tracking-tight">Minor</span>
+      </div>
+      <h1 class="text-5xl md:text-6xl font-extrabold tracking-tight mb-5 leading-tight">
+        <span class="text-gradient">Stripe for Under-18 Finance</span>
+      </h1>
+      <p class="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
+        Compliance-grade UTMA custodial accounts for minors.
+        <span class="text-slate-300">15-minute integration.</span>
+        COPPA-ready.
+      </p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 fade-in" style="animation-delay: 0.1s;">
+
+      <div class="glass rounded-3xl p-8 hover:border-emerald-500/40 transition-all duration-300 group">
+        <div class="flex items-center gap-4 mb-7">
+          <div class="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+            <i class="fa-solid fa-user-shield text-emerald-400 text-2xl"></i>
+          </div>
+          <div>
+            <h2 class="text-2xl font-bold">I'm a Parent</h2>
+            <p class="text-slate-400 text-sm">Manage your children's accounts</p>
+          </div>
+        </div>
+        <form onsubmit="event.preventDefault(); navigateTo('parent', this.querySelector('input').value);" class="space-y-3">
+          <input type="text" placeholder="Parent ID (par_...)"
+            class="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 font-mono text-sm"
+            required pattern="^par_.+">
+          <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl px-6 py-3.5 transition-all shadow-lg shadow-emerald-500/20">
+            Sign in as parent
+            <i class="fa-solid fa-arrow-right ml-2"></i>
+          </button>
+        </form>
+      </div>
+
+      <div class="glass rounded-3xl p-8 hover:border-indigo-500/40 transition-all duration-300 group">
+        <div class="flex items-center gap-4 mb-7">
+          <div class="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center group-hover:bg-indigo-500/20 transition-colors">
+            <i class="fa-solid fa-graduation-cap text-indigo-400 text-2xl"></i>
+          </div>
+          <div>
+            <h2 class="text-2xl font-bold">I'm a Child</h2>
+            <p class="text-slate-400 text-sm">Track your savings</p>
+          </div>
+        </div>
+        <form onsubmit="event.preventDefault(); navigateTo('child', this.querySelector('input').value);" class="space-y-3">
+          <input type="text" placeholder="Account ID (acc_...)"
+            class="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 font-mono text-sm"
+            required pattern="^acc_.+">
+          <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl px-6 py-3.5 transition-all shadow-lg shadow-indigo-500/20">
+            Sign in as child
+            <i class="fa-solid fa-arrow-right ml-2"></i>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="text-center mt-12 flex items-center justify-center gap-6 text-slate-500 text-sm flex-wrap">
+      <span><i class="fa-solid fa-circle-info mr-1.5"></i>Demo mode</span>
+      <span class="text-slate-700">•</span>
+      <a href="/docs" class="hover:text-slate-300 transition-colors"><i class="fa-solid fa-code mr-1.5"></i>API docs</a>
+      <span class="text-slate-700">•</span>
+      <span><i class="fa-solid fa-shield-halved mr-1.5"></i>COPPA 16 CFR §312</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  function navigateTo(role, id) {
+    const trimmed = id.trim();
+    if (role === 'parent' && !trimmed.startsWith('par_')) {
+      alert('Parent ID must start with "par_"');
+      return;
+    }
+    if (role === 'child' && !trimmed.startsWith('acc_')) {
+      alert('Account ID must start with "acc_"');
+      return;
+    }
+    window.location.href = `/${role}/${encodeURIComponent(trimmed)}`;
+  }
+</script>
+{% endblock %}

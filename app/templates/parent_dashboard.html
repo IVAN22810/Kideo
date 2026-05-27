@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}{{ parent.legal_first_name }}'s Dashboard — Minor{% endblock %}
+{% block content %}
+<div class="min-h-screen">
+
+  <nav class="border-b border-slate-800/60 backdrop-blur-md bg-slate-950/80 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center">
+          <i class="fa-solid fa-piggy-bank text-white text-sm"></i>
+        </div>
+        <span class="text-xl font-bold">Minor</span>
+        <span class="text-slate-700 hidden md:inline">|</span>
+        <span class="text-slate-400 text-sm hidden md:inline">Parent Dashboard</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="text-right">
+          <div class="text-sm font-semibold">{{ parent.legal_first_name }} {{ parent.legal_last_name }}</div>
+          <div class="text-xs text-slate-500 font-mono">{{ parent.id }}</div>
+        </div>
+        <a href="/" title="Sign out" class="text-slate-400 hover:text-slate-100 transition-colors p-2">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-6 py-12 fade-in">
+
+    <div class="mb-10">
+      <h1 class="text-4xl font-extrabold tracking-tight mb-2">Hi, {{ parent.legal_first_name }} <span class="text-3xl">👋</span></h1>
+      <p class="text-slate-400">Manage your children's savings in compliance with COPPA and UTMA.</p>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-4 mb-12">
+      <div class="glass rounded-2xl p-6">
+        <div class="text-slate-400 text-xs uppercase tracking-wider mb-2">Total accounts</div>
+        <div class="text-3xl font-extrabold">{{ accounts|length }}</div>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="text-slate-400 text-xs uppercase tracking-wider mb-2">Total balance</div>
+        <div class="text-3xl font-extrabold text-emerald-400">${{ "%.2f"|format(total_balance / 100) }}</div>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <div class="text-slate-400 text-xs uppercase tracking-wider mb-2">COPPA status</div>
+        <div class="text-sm font-semibold text-emerald-400 flex items-center gap-2 mt-1.5">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>16 CFR §312.5 verified</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-bold flex items-center gap-3">
+        <i class="fa-solid fa-vault text-emerald-400"></i>
+        Custodial Accounts
+      </h2>
+      <span class="text-slate-500 text-sm font-mono">{{ accounts|length }} active</span>
+    </div>
+
+    {% if accounts %}
+    <div class="grid lg:grid-cols-2 gap-5">
+      {% for account in accounts %}
+      {% set child = children.get(account.child_id) %}
+      <div class="glass rounded-3xl p-6 hover:border-emerald-500/30 transition-all">
+        <div class="flex items-start justify-between mb-6">
+          <div>
+            <div class="text-slate-500 text-xs uppercase tracking-wider mb-1">Beneficiary</div>
+            <div class="text-xl font-bold">{{ child.legal_first_name if child else 'Unknown' }} {{ child.legal_last_name if child else '' }}</div>
+            <div class="text-slate-500 text-sm mt-0.5">{{ account.account_type.value|upper }} · {{ account.governing_state }} · Terminates at {{ account.termination_age }}</div>
+          </div>
+          {% if account.status.value == 'active' %}
+          <span class="text-xs px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-semibold">
+            <i class="fa-solid fa-circle text-[6px] mr-1"></i>Active
+          </span>
+          {% else %}
+          <span class="text-xs px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 font-semibold">
+            <i class="fa-solid fa-clock text-[10px] mr-1"></i>{{ account.status.value }}
+          </span>
+          {% endif %}
+        </div>
+
+        <div class="mb-6">
+          <div class="text-slate-500 text-xs uppercase tracking-wider mb-1">Balance</div>
+          <div class="text-4xl font-extrabold text-emerald-400 tracking-tight">${{ "%.2f"|format(account.balance_minor_units / 100) }}</div>
+        </div>
+
+        <div class="text-xs text-slate-500 space-y-1.5 mb-6 font-mono">
+          <div><i class="fa-solid fa-fingerprint mr-2 text-slate-600"></i><span>{{ account.id }}</span></div>
+          {% if account.activated_at %}
+          <div class="text-emerald-400/80"><i class="fa-solid fa-shield-check mr-2"></i><span>COPPA Verified Parental Consent · {{ account.activated_at.strftime('%b %d, %Y') }}</span></div>
+          {% else %}
+          <div class="text-amber-400/80"><i class="fa-solid fa-clock mr-2"></i><span>Awaiting Verifiable Parental Consent</span></div>
+          {% endif %}
+        </div>
+
+        <div class="flex gap-3">
+          <button onclick="openDepositModal('{{ account.id }}', '{{ (child.legal_first_name if child else 'Unknown') + ' ' + (child.legal_last_name if child else '') }}')"
+                  class="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-semibold rounded-xl px-4 py-3 transition-all shadow-lg shadow-emerald-500/10"
+                  {% if account.status.value != 'active' %}disabled title="Account must be active"{% endif %}>
+            <i class="fa-solid fa-plus mr-2"></i>Deposit
+          </button>
+          <a href="/child/{{ account.id }}"
+             class="flex-1 text-center border border-slate-700 hover:border-indigo-500 hover:bg-indigo-500/10 text-slate-200 rounded-xl px-4 py-3 transition-all">
+            <i class="fa-solid fa-eye mr-2"></i>Open as child
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="glass rounded-3xl p-12 text-center">
+      <i class="fa-solid fa-folder-open text-4xl text-slate-700 mb-4"></i>
+      <p class="text-slate-400">No custodial accounts open yet.</p>
+      <p class="text-slate-500 text-sm mt-2">Create the first one via <code class="font-mono text-emerald-400">POST /v1/accounts</code> in the API.</p>
+    </div>
+    {% endif %}
+  </main>
+</div>
+
+<div id="depositModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden items-center justify-center p-4">
+  <div class="glass rounded-3xl p-8 max-w-md w-full fade-in border-emerald-500/20">
+    <div class="flex items-center justify-between mb-6">
+      <h3 class="text-2xl font-bold flex items-center gap-3">
+        <i class="fa-solid fa-money-bill-transfer text-emerald-400"></i>
+        Deposit to account
+      </h3>
+      <button onclick="closeDepositModal()" class="text-slate-400 hover:text-slate-100 p-2">
+        <i class="fa-solid fa-xmark text-xl"></i>
+      </button>
+    </div>
+    <form onsubmit="event.preventDefault(); submitDeposit();" class="space-y-4">
+      <div>
+        <label class="text-slate-400 text-xs uppercase tracking-wider mb-2 block">Recipient</label>
+        <div id="depositRecipient" class="text-slate-200 font-semibold"></div>
+        <div id="depositRecipientId" class="text-slate-500 text-xs font-mono mt-1"></div>
+      </div>
+      <div>
+        <label class="text-slate-400 text-xs uppercase tracking-wider mb-2 block">Funding Source</label>
+        <select id="fundingSelect" class="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 focus:outline-none focus:border-emerald-500/50">
+          {% for fs in funding_sources %}
+          <option value="{{ fs.id }}">{{ fs.bank_name }} ****{{ fs.last_four }}</option>
+          {% else %}
+          <option disabled>No verified funding sources</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-slate-400 text-xs uppercase tracking-wider mb-2 block">Amount (USD)</label>
+        <div class="relative">
+          <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">$</span>
+          <input id="amountInput" type="number" min="1" step="0.01" placeholder="50.00" required
+            class="w-full bg-slate-900/60 border border-slate-800 rounded-xl pl-8 pr-4 py-3 text-slate-100 text-lg placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20">
+        </div>
+        <div class="text-xs text-slate-500 mt-1.5">Minimum $1.00</div>
+      </div>
+      <div id="depositError" class="hidden bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl px-4 py-3 text-sm"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeDepositModal()" class="flex-1 border border-slate-700 hover:border-slate-600 hover:bg-slate-800/40 rounded-xl px-4 py-3 transition-all">Cancel</button>
+        <button type="submit" id="depositBtn" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl px-4 py-3 transition-all shadow-lg shadow-emerald-500/20">
+          Confirm
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  let currentAccountId = null;
+
+  function openDepositModal(accountId, childName) {
+    currentAccountId = accountId;
+    document.getElementById('depositRecipient').textContent = childName.trim();
+    document.getElementById('depositRecipientId').textContent = accountId;
+    const modal = document.getElementById('depositModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.getElementById('amountInput').focus();
+  }
+
+  function closeDepositModal() {
+    const modal = document.getElementById('depositModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.getElementById('depositError').classList.add('hidden');
+    document.getElementById('amountInput').value = '';
+  }
+
+  async function submitDeposit() {
+    const amount = parseFloat(document.getElementById('amountInput').value);
+    const fundingSourceId = document.getElementById('fundingSelect').value;
+    const errBox = document.getElementById('depositError');
+    const btn = document.getElementById('depositBtn');
+    errBox.classList.add('hidden');
+
+    if (!fundingSourceId) {
+      errBox.textContent = 'No verified funding sources. Link a bank via POST /v1/funding-sources.';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    if (!amount || amount < 1) {
+      errBox.textContent = 'Minimum deposit amount is $1.00';
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Processing...';
+
+    try {
+      const res = await fetch(`/v1/accounts/${currentAccountId}/deposits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          funding_source_id: fundingSourceId,
+          amount_minor_units: Math.round(amount * 100),
+          description: 'Web dashboard deposit'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.textContent = (data.error && data.error.message) || 'Deposit failed';
+        errBox.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = 'Confirm';
+        return;
+      }
+      location.reload();
+    } catch (e) {
+      errBox.textContent = 'Network error: ' + e.message;
+      errBox.classList.remove('hidden');
+      btn.disabled = false;
+      btn.innerHTML = 'Confirm';
+    }
+  }
+
+  document.getElementById('depositModal').addEventListener('click', (e) => {
+    if (e.target.id === 'depositModal') closeDepositModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDepositModal();
+  });
+</script>
+{% endblock %}

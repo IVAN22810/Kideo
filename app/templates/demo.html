@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}Minor — Live Demo{% endblock %}
+{% block content %}
+<div class="min-h-screen flex flex-col">
+
+  {# ─── Nav ────────────────────────────────────────────────────────────── #}
+  <nav class="border-b border-slate-800/60 backdrop-blur-md bg-slate-950/80 sticky top-0 z-20">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center">
+          <i class="fa-solid fa-piggy-bank text-white text-sm"></i>
+        </div>
+        <span class="text-xl font-bold">Minor</span>
+        <span class="text-slate-700 hidden md:inline">|</span>
+        <span class="text-slate-400 text-sm hidden md:inline">Live Two-Step Withdrawal Demo</span>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-slate-500">
+        <span><i class="fa-solid fa-circle text-emerald-400 text-[6px] mr-1.5 pulse-soft"></i>Polling live</span>
+        <span class="text-slate-700 hidden md:inline">•</span>
+        <a href="/docs" class="hover:text-slate-300 transition-colors hidden md:inline"><i class="fa-solid fa-code mr-1"></i>API</a>
+      </div>
+    </div>
+  </nav>
+
+  {# ─── Top banner: account + balance (the number that animates) ──────── #}
+  <header class="max-w-7xl mx-auto w-full px-6 pt-10 pb-6 fade-in">
+    <div class="text-center">
+      <div class="text-slate-400 text-xs uppercase tracking-[0.2em] mb-2">
+        {{ child.legal_first_name }}'s UTMA · {{ account.governing_state }} · custodian {{ parent.legal_first_name }} {{ parent.legal_last_name }}
+      </div>
+      <div id="balanceDisplay" class="text-6xl md:text-7xl font-extrabold text-gradient tracking-tight">
+        ${{ "%.2f"|format(account.balance_minor_units / 100) }}
+      </div>
+      <div class="text-slate-500 text-xs mt-2 font-mono">{{ account.id }}</div>
+    </div>
+  </header>
+
+  {# ─── Split screen: child (left) | parent (right) ───────────────────── #}
+  <main class="max-w-7xl mx-auto w-full px-6 pb-6 flex-1 grid lg:grid-cols-2 gap-6 fade-in" style="animation-delay: 0.1s;">
+
+    {# ── LEFT: child panel ─────────────────────────────────────────────── #}
+    <section class="glass rounded-3xl p-7 flex flex-col">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center">
+          <i class="fa-solid fa-graduation-cap text-indigo-400 text-xl"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wider">Child</div>
+          <div class="text-xl font-bold">{{ child.legal_first_name }} {{ child.legal_last_name }}</div>
+        </div>
+      </div>
+
+      <p class="text-slate-400 text-sm mb-6">
+        {{ child.legal_first_name }} can <em class="text-indigo-300 not-italic">request</em> a withdrawal,
+        but cannot execute it. The UTMA custodial invariant lives in the API,
+        not in this button.
+      </p>
+
+      <button id="requestBtn"
+              class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold rounded-2xl px-6 py-5 transition-all shadow-lg shadow-indigo-500/20 text-lg">
+        <i class="fa-solid fa-hand-holding-dollar mr-2"></i>
+        Request <span class="font-extrabold">$10.00</span> withdrawal
+      </button>
+      <div class="text-xs text-slate-500 text-center mt-2">
+        Per-withdrawal ceiling on this account:
+        {% if account.spending_ceiling_minor_units %}${{ "%.2f"|format(account.spending_ceiling_minor_units / 100) }}{% else %}none{% endif %}
+      </div>
+
+      <div class="mt-6 flex-1 min-h-[180px]">
+        <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">Child-side activity</div>
+        <div id="childLog" class="space-y-2 text-sm"></div>
+      </div>
+    </section>
+
+    {# ── RIGHT: parent panel ───────────────────────────────────────────── #}
+    <section class="glass rounded-3xl p-7 flex flex-col">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+          <i class="fa-solid fa-user-shield text-emerald-400 text-xl"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wider">Parent (Custodian)</div>
+          <div class="text-xl font-bold">{{ parent.legal_first_name }} {{ parent.legal_last_name }}</div>
+        </div>
+      </div>
+
+      <p class="text-slate-400 text-sm mb-6">
+        Only {{ parent.legal_first_name }} can approve. Approval atomically
+        decrements the balance and writes an immutable compliance event.
+      </p>
+
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs text-slate-500 uppercase tracking-wider">Pending requests</div>
+        <span id="pendingCountBadge" class="text-xs text-slate-500">refreshing…</span>
+      </div>
+
+      <div id="pendingList" class="space-y-3 flex-1 min-h-[180px]"
+           data-child-name="{{ child.legal_first_name }}">
+        {# Filled by JS poll. Empty state below is for the first-paint flash. #}
+        <div class="text-slate-600 text-sm italic text-center py-8">Loading…</div>
+      </div>
+    </section>
+  </main>
+
+  {# ─── Compliance ribbon (the "why this isn't Venmo" reveal) ─────────── #}
+  <footer class="max-w-7xl mx-auto w-full px-6 pb-10 pt-2 fade-in" style="animation-delay: 0.2s;">
+    <div id="complianceRibbon"
+         class="glass rounded-2xl px-5 py-4 border-l-4 border-slate-700 transition-colors duration-500">
+      <div class="flex items-start gap-3">
+        <i class="fa-solid fa-shield-halved text-slate-500 mt-0.5"></i>
+        <div class="flex-1">
+          <div id="ribbonLabel" class="text-xs uppercase tracking-wider text-slate-500 mb-1">
+            Regulatory citation
+          </div>
+          <div id="ribbonText" class="text-sm text-slate-300 leading-relaxed">
+            Take an action above to see the corresponding UTMA / COPPA citation that the API writes to the immutable compliance log.
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+  const ACCOUNT_ID = {{ account.id | tojson }};
+  const POLL_MS = 1500;
+  const REQUEST_AMOUNT_CENTS = 1000;  // $10.00 — keep under the seeded $30 ceiling
+
+  // Citations mirror app/routers/transactions.py — kept in JS so the demo
+  // works without an extra compliance-events GET endpoint.
+  const CITATIONS = {
+    requested: {
+      label: "UTMA — Custodial Control Invariant",
+      text: "Child may request distributions; execution requires custodian approval. Transaction is held in status='pending' with no balance change until the parent decides.",
+      color: "border-indigo-400",
+    },
+    approved: {
+      label: "UTMA — Custodian-Approved Distribution (31 CFR §1010.311)",
+      text: "Custodian approved the request. Balance was decremented atomically alongside an immutable compliance_events row. BSA/AML reporting baseline applies.",
+      color: "border-emerald-400",
+    },
+    rejected: {
+      label: "UTMA — Custodial Veto Preserved",
+      text: "Custodian rejected the request. No funds moved. The custodial control invariant is preserved and the rejection is audit-logged.",
+      color: "border-rose-400",
+    },
+  };
+
+  const balanceDisplay = document.getElementById("balanceDisplay");
+  const requestBtn = document.getElementById("requestBtn");
+  const childLog = document.getElementById("childLog");
+  const pendingList = document.getElementById("pendingList");
+  const pendingCountBadge = document.getElementById("pendingCountBadge");
+  const ribbonLabel = document.getElementById("ribbonLabel");
+  const ribbonText = document.getElementById("ribbonText");
+  const complianceRibbon = document.getElementById("complianceRibbon");
+
+  // ── Citation ribbon ──────────────────────────────────────────────────
+  function showCitation(kind) {
+    const c = CITATIONS[kind];
+    if (!c) return;
+    ribbonLabel.textContent = c.label;
+    ribbonText.textContent = c.text;
+    complianceRibbon.classList.remove(
+      "border-slate-700", "border-indigo-400", "border-emerald-400", "border-rose-400"
+    );
+    complianceRibbon.classList.add(c.color);
+  }
+
+  // ── Child-side activity log ──────────────────────────────────────────
+  function logChild(text, kind = "info") {
+    const tone = {
+      info: "text-slate-300 bg-slate-900/50 border-slate-800",
+      ok: "text-indigo-200 bg-indigo-500/10 border-indigo-500/30",
+      approved: "text-emerald-200 bg-emerald-500/10 border-emerald-500/30",
+      rejected: "text-rose-200 bg-rose-500/10 border-rose-500/30",
+      err: "text-rose-200 bg-rose-500/10 border-rose-500/30",
+    }[kind] || "text-slate-300 bg-slate-900/50 border-slate-800";
+    const row = document.createElement("div");
+    row.className = `border rounded-xl px-3 py-2 fade-in ${tone}`;
+    const now = new Date();
+    const ts = now.toTimeString().slice(0, 8);
+    row.innerHTML = `<span class="text-[10px] font-mono text-slate-500 mr-2">${ts}</span>${text}`;
+    childLog.prepend(row);
+    while (childLog.children.length > 6) childLog.lastChild.remove();
+  }
+
+  // ── Balance animation ────────────────────────────────────────────────
+  function setBalance(cents) {
+    const next = "$" + (cents / 100).toFixed(2);
+    if (balanceDisplay.textContent.trim() === next) return;
+    balanceDisplay.style.transition = "transform 0.3s ease-out, color 0.3s";
+    balanceDisplay.style.transform = "scale(1.06)";
+    setTimeout(() => {
+      balanceDisplay.textContent = next;
+      balanceDisplay.style.transform = "scale(1)";
+    }, 140);
+  }
+
+  // ── Render the parent-side pending list ──────────────────────────────
+  function renderPending(transactions) {
+    pendingCountBadge.textContent = transactions.length === 0
+      ? "none"
+      : `${transactions.length} awaiting`;
+
+    if (transactions.length === 0) {
+      const childName = pendingList.dataset.childName || "the child";
+      pendingList.innerHTML = `
+        <div class="text-slate-600 text-sm italic text-center py-8">
+          Nothing pending. Have ${escapeHtml(childName)} click the button on the left.
+        </div>`;
+      return;
+    }
+
+    pendingList.innerHTML = transactions.map((tx) => {
+      const amount = "$" + (tx.amount_minor_units / 100).toFixed(2);
+      const age = relTime(tx.created_at);
+      const desc = tx.description ? `<div class="text-xs text-slate-500 mt-1 truncate">${escapeHtml(tx.description)}</div>` : "";
+      return `
+        <div class="border border-slate-800 rounded-2xl p-4 fade-in">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div class="text-2xl font-extrabold text-emerald-400">${amount}</div>
+              <div class="text-xs text-slate-500 mt-0.5">requested ${age}</div>
+              ${desc}
+            </div>
+            <div class="text-[10px] font-mono text-slate-600 max-w-[100px] truncate text-right">${tx.id}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="decide('${tx.id}','approve', ${tx.amount_minor_units})"
+                    class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl px-4 py-2.5 transition-all">
+              <i class="fa-solid fa-check mr-1"></i>Approve
+            </button>
+            <button onclick="decide('${tx.id}','reject', ${tx.amount_minor_units})"
+                    class="flex-1 bg-rose-500/90 hover:bg-rose-500 text-white font-semibold rounded-xl px-4 py-2.5 transition-all">
+              <i class="fa-solid fa-xmark mr-1"></i>Reject
+            </button>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  // ── Actions ──────────────────────────────────────────────────────────
+  async function requestWithdrawal() {
+    requestBtn.disabled = true;
+    requestBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Submitting…';
+    try {
+      const res = await fetch(`/v1/accounts/${ACCOUNT_ID}/withdrawals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount_minor_units: REQUEST_AMOUNT_CENTS,
+          description: "Demo: request $10",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data.error && data.error.message) || "Request failed";
+        logChild(`<i class="fa-solid fa-triangle-exclamation mr-1"></i>${escapeHtml(msg)}`, "err");
+      } else {
+        logChild(`<i class="fa-solid fa-paper-plane mr-1"></i>Requested $10.00 — awaiting {{ parent.legal_first_name }}.`, "ok");
+        showCitation("requested");
+        // Refresh immediately so the request shows up on the right side without waiting.
+        poll();
+      }
+    } catch (e) {
+      logChild(`<i class="fa-solid fa-plug-circle-xmark mr-1"></i>Network error: ${escapeHtml(e.message)}`, "err");
+    } finally {
+      requestBtn.disabled = false;
+      requestBtn.innerHTML = '<i class="fa-solid fa-hand-holding-dollar mr-2"></i>Request <span class="font-extrabold">$10.00</span> withdrawal';
+    }
+  }
+
+  async function decide(txId, action, amountCents) {
+    const url = `/v1/transactions/${txId}/${action}`;
+    const body = action === "approve" ? { note: "Approved via /demo" } : { reason: "Rejected via /demo" };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = (data.error && data.error.message) || `${action} failed`;
+        logChild(`<i class="fa-solid fa-triangle-exclamation mr-1"></i>${escapeHtml(msg)}`, "err");
+      } else if (action === "approve") {
+        logChild(`<i class="fa-solid fa-check-double mr-1"></i>{{ parent.legal_first_name }} approved $${(amountCents/100).toFixed(2)}.`, "approved");
+        showCitation("approved");
+      } else {
+        logChild(`<i class="fa-solid fa-xmark mr-1"></i>{{ parent.legal_first_name }} rejected the $${(amountCents/100).toFixed(2)} request.`, "rejected");
+        showCitation("rejected");
+      }
+    } catch (e) {
+      logChild(`Network error: ${escapeHtml(e.message)}`, "err");
+    } finally {
+      poll();
+    }
+  }
+  // Expose for the inline onclick handlers
+  window.decide = decide;
+
+  // ── Polling: refresh balance + pending list ──────────────────────────
+  async function poll() {
+    try {
+      const [accRes, pendRes] = await Promise.all([
+        fetch(`/v1/accounts/${ACCOUNT_ID}`),
+        fetch(`/v1/accounts/${ACCOUNT_ID}/transactions?status=pending&type=withdrawal`),
+      ]);
+      if (accRes.ok) {
+        const acc = await accRes.json();
+        setBalance(acc.balance_minor_units);
+      }
+      if (pendRes.ok) {
+        const txs = await pendRes.json();
+        renderPending(txs);
+      }
+    } catch (_) {
+      // swallow — next poll will retry
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
+  function relTime(iso) {
+    const t = new Date(iso).getTime();
+    const dt = Math.max(0, Date.now() - t);
+    if (dt < 5000) return "just now";
+    if (dt < 60000) return Math.floor(dt / 1000) + "s ago";
+    if (dt < 3600000) return Math.floor(dt / 60000) + "m ago";
+    return Math.floor(dt / 3600000) + "h ago";
+  }
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+
+  // ── Boot ─────────────────────────────────────────────────────────────
+  requestBtn.addEventListener("click", requestWithdrawal);
+  poll();
+  setInterval(poll, POLL_MS);
+</script>
+{% endblock %}

@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Env
+.env
+.env.local
+
+# SQLite
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local runtime artifacts
+uvicorn-*.log
+uvicorn-*.err
+uvicorn-*.pid
+
+# Personal files / large binaries that don't belong in the repo
+*.MOV
+*.mov
+*.mp4
+*.docx
+
