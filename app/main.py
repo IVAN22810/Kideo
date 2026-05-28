@@ -79,12 +79,12 @@ app.include_router(transactions.actions_router, dependencies=_v1_auth)  # POST /
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "minor-api", "version": "0.1.0"}
+    return {"status": "ok", "service": "kideo-api", "version": "0.1.0"}
 
 
 @app.get("/v1", dependencies=[Depends(require_api_key)])
 def api_root():
-    return {"api": "minor", "version": "2026-05-01"}
+    return {"api": "kideo", "version": "2026-05-01"}
 
 
 # ── Web UI routes ───────────────────────────────────────────────────────────
