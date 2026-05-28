@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ child.legal_first_name }}'s Savings — Minor{% endblock %}
+{% block title %}{{ child.legal_first_name }}'s Savings — Kideo{% endblock %}
 {% block content %}
 <div class="min-h-screen">
 
@@ -9,7 +9,7 @@
         <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-indigo-500 flex items-center justify-center">
           <i class="fa-solid fa-piggy-bank text-white text-sm"></i>
         </div>
-        <span class="text-xl font-bold">Minor</span>
+        <span class="text-xl font-bold">Kideo</span>
         <span class="text-slate-700 hidden md:inline">|</span>
         <span class="text-slate-400 text-sm hidden md:inline">{{ child.legal_first_name }}'s Savings</span>
       </div>
@@ -74,7 +74,7 @@
             <i class="fa-solid fa-robot text-white"></i>
           </div>
           <div>
-            <h3 class="text-lg font-bold">Minor AI Mentor</h3>
+            <h3 class="text-lg font-bold">Kideo AI Mentor</h3>
             <p class="text-slate-500 text-xs"><span class="inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full mr-1 pulse-soft"></span>Online · Mock mode</p>
           </div>
         </div>
@@ -85,7 +85,7 @@
               <i class="fa-solid fa-robot text-white text-xs"></i>
             </div>
             <div class="bg-slate-900/60 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%]">
-              <div class="text-sm">Hi, {{ child.legal_first_name }}! I'm your Minor AI Mentor. Try asking:</div>
+              <div class="text-sm">Hi, {{ child.legal_first_name }}! I'm your Kideo AI Mentor. Try asking:</div>
               <ul class="text-sm text-slate-400 mt-2 space-y-1">
                 <li>· <button onclick="prefill('How much money do I have on my account?')" class="hover:text-emerald-400 transition-colors text-left">"How much money do I have on my account?"</button></li>
                 <li>· <button onclick="prefill('Show the transaction history')" class="hover:text-emerald-400 transition-colors text-left">"Show the transaction history"</button></li>

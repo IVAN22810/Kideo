@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Minor API",
+    title="Kideo API",
     description="Stripe for Under-18 Finance - UTMA UGMA custodial account API",
     version="0.1.0",
     lifespan=lifespan,
