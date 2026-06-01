@@ -16,6 +16,7 @@ from app.database import get_session
 from app.errors import MinorAPIError
 from app.models import Child, ComplianceEventType, Parent
 from app.schemas import ChildCreate, ChildRead
+from app.services.auth import forbid_on_production
 from app.services.compliance import log_event
 from app.utils.age import aware_utc, completed_years
 
@@ -30,6 +31,7 @@ MAX_CHILD_AGE_YEARS = 18
     response_model=ChildRead,
     status_code=status.HTTP_201_CREATED,
     summary="Register a minor beneficiary under an existing parent custodian",
+    dependencies=[Depends(forbid_on_production)],
 )
 def create_child(
     payload: ChildCreate,

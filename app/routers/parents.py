@@ -17,6 +17,7 @@ from app.database import get_session
 from app.errors import MinorAPIError
 from app.models import ComplianceEventType, Parent
 from app.schemas import ParentCreate, ParentRead
+from app.services.auth import forbid_on_production
 from app.services.compliance import log_event
 from app.utils.age import aware_utc, completed_years
 
@@ -31,6 +32,7 @@ MINIMUM_PARENT_AGE_YEARS = 18
     response_model=ParentRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create a parent custodian",
+    dependencies=[Depends(forbid_on_production)],
 )
 def create_parent(
     payload: ParentCreate,

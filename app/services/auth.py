@@ -66,6 +66,7 @@ from typing import Optional
 from fastapi import Depends, Header, status
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.database import engine, get_session
 from app.errors import MinorAPIError
 from app.models import ApiKey
@@ -189,3 +190,41 @@ def require_account_access(
     """
     assert_account_access(api_key, account_id)
     return api_key
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Production lockdown for tenant-creating ("bootstrap") endpoints
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def forbid_on_production() -> None:
+    """Reject the request when ENV=production.
+
+    Mounted on the four tenant-creating endpoints (POST /v1/parents,
+    /v1/children, /v1/accounts, /v1/funding-sources) so the publicly-visible
+    sandbox API key rendered on /demo cannot be used to inject arbitrary PII
+    (including children's SSN/TIN) into the deployed instance.
+
+    Development (ENV=development): no-op — local operators can still bootstrap.
+    Production (ENV=production):   503 with a clear message; the only way to
+                                   create new tenants on prod becomes an
+                                   out-of-band action (e.g. attaching to the
+                                   DB directly, or a future X-Admin-Key path).
+
+    This is intentionally blunt. A more flexible follow-up would be a separate
+    admin credential that selectively re-enables these endpoints; this commit
+    is the minimum that closes the PII-injection surface described in the
+    privacy audit.
+    """
+    if settings.env == "production":
+        raise MinorAPIError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            type="permission_error",
+            code="bootstrap_disabled_on_production",
+            message=(
+                "Tenant-creation endpoints are disabled on this production "
+                "instance to prevent unsolicited PII submissions via the "
+                "publicly-visible sandbox API key. Use a development instance "
+                "to create records, or contact an administrator."
+            ),
+        )

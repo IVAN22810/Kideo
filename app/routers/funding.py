@@ -20,6 +20,7 @@ from app.database import get_session
 from app.errors import MinorAPIError
 from app.models import ComplianceEventType, FundingSource, Parent
 from app.schemas import FundingSourceCreate, FundingSourceRead
+from app.services.auth import forbid_on_production
 from app.services.compliance import log_event
 
 
@@ -31,6 +32,7 @@ router = APIRouter(prefix="/v1/funding-sources", tags=["funding-sources"])
     response_model=FundingSourceRead,
     status_code=status.HTTP_201_CREATED,
     summary="Link a parent's bank account as a deposit source",
+    dependencies=[Depends(forbid_on_production)],
 )
 def create_funding_source(
     payload: FundingSourceCreate,

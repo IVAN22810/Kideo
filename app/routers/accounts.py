@@ -24,7 +24,7 @@ from app.services.api_keys import (
     generate_plaintext_key,
     hash_key,
 )
-from app.services.auth import require_account_access, require_api_key
+from app.services.auth import forbid_on_production, require_account_access, require_api_key
 from app.services.compliance import log_event
 from app.services.state_rules import (
     get_state_rules,
@@ -48,6 +48,7 @@ parent_accounts_router = APIRouter(prefix="/v1/parents", tags=["accounts"])
         "Open a UTMA/UGMA custodial account and issue its API key. "
         "The plaintext key is returned exactly once — capture it on creation."
     ),
+    dependencies=[Depends(forbid_on_production)],
 )
 def create_account(
     payload: AccountCreate,
